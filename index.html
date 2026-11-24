@@ -121,6 +121,10 @@
         };
         function setLang(lang) { document.documentElement.lang = lang; document.querySelectorAll("[data-i]").forEach(el => { const k = el.dataset.i; if (dict[lang][k]) el.textContent = dict[lang][k] }); }
     </script>
+    <script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 
 </html>
