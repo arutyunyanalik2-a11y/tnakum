@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TNAKUM — Панель управления</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #101916;
+            color: #eef3f1;
+            margin: 0;
+            padding: 20px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #283b34;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header h1 { margin: 0; font-size: 22px; }
+        .btn-back {
+            background: #283b34;
+            color: #fff;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .card {
+            background: #182621;
+            border: 1px solid #283b34;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .card h2 { margin-top: 0; font-size: 18px; color: #8fd3b6; }
+        .color-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        input[type="color"] {
+            width: 60px;
+            height: 40px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: transparent;
+        }
+        button {
+            padding: 9px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        .btn-save { background: #2e7d32; color: #fff; }
+        .btn-reset { background: #455a52; color: #fff; }
+        .btn-del { background: #b71c1c; color: #fff; padding: 6px 12px; font-size: 12px; }
+        .btn-upload { background: #1976d2; color: #fff; padding: 6px 12px; font-size: 12px; }
+
+        .slots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 16px;
+        }
+        .slot-item {
+            background: #121d19;
+            border: 1px solid #263832;
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .slot-title { font-size: 14px; font-weight: 600; color: #cde2da; }
+        .slot-img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 6px;
+            background: #0b120f;
+        }
+        .slot-status { font-size: 12px; color: #88a097; }
+        .slot-actions { display: flex; gap: 8px; margin-top: auto; }
+        .loader {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2e7d32;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container" id="adminApp" style="display:none;">
+    <div class="header">
+        <h1>Настройки сайта TNAKUM</h1>
+        <a href="index.html" class="btn-back">← Вернуться на сайт</a>
+    </div>
+
+    <!-- Секция 1: Цвет фона (зелёная часть) -->
+    <div class="card">
+        <h2>Цвет фона сайта</h2>
+        <div class="color-row">
+            <input type="color" id="bgColorPicker" value="#14211d">
+            <button class="btn-save" onclick="saveColor()">Сохранить цвет</button>
+            <button class="btn-reset" onclick="resetColor()">Вернуть заводской зелёный (#14211d)</button>
+        </div>
+    </div>
+
+    <!-- Секция 2: Картинки блока "Возможности" -->
+    <div class="card">
+        <h2>Фотографии в разделе «Возможности» (6 шт.)</h2>
+        <div class="slots-grid" id="amenitiesGrid"></div>
+    </div>
+
+    <!-- Секция 3: Картинки Галереи -->
+    <div class="card">
+        <h2>Фотографии в разделе «Галерея» (10 шт.)</h2>
+        <div class="slots-grid" id="galleryGrid"></div>
+    </div>
+</div>
+
+<div class="loader" id="toast">Сохранение...</div>
+
+<script>
+    // === НАСТРОЙКИ SUPABASE (ВСТАВЬ ТЕ ЖЕ КЛЮЧИ СЮДА) ===
+    const SUPABASE_URL = 'https://vspzdataxlckwymshsey.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_IXd1Pei8wEcVZPv_SDirpA_AMG3Kfla';
+
+    // Защита: если зашли напрямую без ввода кода на главной
+    if (sessionStorage.getItem('tnakum_admin_auth') !== 'true') {
+        const code = prompt('Введите код доступа к админ-панели:');
+        if (code === 'Alik.2012') {
+            sessionStorage.setItem('tnakum_admin_auth', 'true');
+        } else {
+            alert('Доступ запрещён');
+            window.location.href = 'index.html';
+        }
+    }
+    document.getElementById('adminApp').style.display = 'block';
+
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let currentConfig = { bgColor: null, images: {} };
+
+    // Список всех слотов с их заводскими картинками по умолчанию
+    const SLOTS = [
+        { id: 'amen_1', group: 'amenities', title: '1. Бассейн и джакузи', def: 'assets/pool-jacuzzi-night.jpg' },
+        { id: 'amen_2', group: 'amenities', title: '2. Сауна', def: 'assets/изображение_viber_2026-11-24_21-43-10-695.jpg' },
+        { id: 'amen_3', group: 'amenities', title: '3. Гостиная', def: 'assets/изображение_viber_2026-11-24_21-43-08-248.jpg' },
+        { id: 'amen_4', group: 'amenities', title: '4. Спальня', def: 'assets/image.png' },
+        { id: 'amen_5', group: 'amenities', title: '5. Обеденная зона', def: 'assets/изображение_viber_2026-11-24_21-43-10-398.jpg' },
+        { id: 'amen_6', group: 'amenities', title: '6. Камин и барбекю', def: 'assets/изображение_viber_2026-11-24_21-43-09-767.jpg' },
+
+        { id: 'gal_1', group: 'gallery', title: 'Галерея — Фото 1', def: 'assets/изображение_viber_2026-11-24_21-43-11-625.jpg' },
+        { id: 'gal_2', group: 'gallery', title: 'Галерея — Фото 2', def: 'assets/изображение_viber_2026-11-24_21-43-08-248.jpg' },
+        { id: 'gal_3', group: 'gallery', title: 'Галерея — Фото 3', def: 'assets/изображение_viber_2026-11-24_21-43-10-695.jpg' },
+        { id: 'gal_4', group: 'gallery', title: 'Галерея — Фото 4', def: 'assets/image.png' },
+        { id: 'gal_5', group: 'gallery', title: 'Галерея — Фото 5', def: 'assets/изображение_viber_2026-11-24_21-43-11-310.jpg' },
+        { id: 'gal_6', group: 'gallery', title: 'Галерея — Фото 6', def: 'assets/изображение_viber_2026-11-24_21-43-15-883.jpg' },
+        { id: 'gal_7', group: 'gallery', title: 'Галерея — Фото 7', def: 'assets/изображение_viber_2026-11-24_21-43-10-398.jpg' },
+        { id: 'gal_8', group: 'gallery', title: 'Галерея — Фото 8', def: 'assets/изображение_viber_2026-11-24_21-43-13-996.jpg' },
+        { id: 'gal_9', group: 'gallery', title: 'Галерея — Фото 9', def: 'assets/изображение_viber_2026-11-24_21-43-10-076.jpg' },
+        { id: 'gal_10', group: 'gallery', title: 'Галерея — Фото 10', def: 'assets/изображение_viber_2026-11-24_21-43-14-398.jpg' }
+    ];
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.style.display = 'block';
+        setTimeout(() => { t.style.display = 'none'; }, 2500);
+    }
+
+    async function init() {
+        const { data } = await sb.from('site_config').select('data').eq('id', 1).single();
+        if (data && data.data) {
+            currentConfig = {
+                bgColor: data.data.bgColor || null,
+                images: data.data.images || {}
+            };
+        }
+        if (currentConfig.bgColor) {
+            document.getElementById('bgColorPicker').value = currentConfig.bgColor;
+        }
+        renderSlots();
+    }
+
+    function renderSlots() {
+        const amenContainer = document.getElementById('amenitiesGrid');
+        const galContainer = document.getElementById('galleryGrid');
+        amenContainer.innerHTML = '';
+        galContainer.innerHTML = '';
+
+        SLOTS.forEach(slot => {
+            const custom = currentConfig.images[slot.id];
+            const imgSrc = (custom && custom.url) ? custom.url : slot.def;
+            const isCustom = Boolean(custom && custom.url);
+
+            const card = document.createElement('div');
+            card.className = 'slot-item';
+            card.innerHTML = `
+                <div class="slot-title">${slot.title}</div>
+                <img class="slot-img" src="${imgSrc}" alt="${slot.title}">
+                <div class="slot-status">${isCustom ? '🟢 Загружено новое фото' : '⚪ Стоит заводское фото'}</div>
+                <div class="slot-actions">
+                    <input type="file" id="file_${slot.id}" accept="image/*" style="display:none" onchange="uploadPhoto('${slot.id}', this)">
+                    <button class="btn-upload" onclick="document.getElementById('file_${slot.id}').click()">Заменить</button>
+                    ${isCustom ? `<button class="btn-del" onclick="deletePhoto('${slot.id}')">Удалить</button>` : ''}
+                </div>
+            `;
+
+            if (slot.group === 'amenities') amenContainer.appendChild(card);
+            else galContainer.appendChild(card);
+        });
+    }
+
+    async function saveConfigToDB() {
+        await sb.from('site_config').upsert({ id: 1, data: currentConfig });
+    }
+
+    async function uploadPhoto(slotId, input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        showToast('Загрузка фото...');
+
+        // 1. Если уже было загружено кастомное фото — удаляем старое из Storage, чтобы не засорять место
+        const oldData = currentConfig.images[slotId];
+        if (oldData && oldData.path) {
+            await sb.storage.from('images').remove([oldData.path]);
+        }
+
+        // 2. Загружаем новое фото с уникальным именем
+        const ext = file.name.split('.').pop();
+        const filePath = `${slotId}_${Date.now()}.${ext}`;
+        const { error: uploadErr } = await sb.storage.from('images').upload(filePath, file);
+
+        if (uploadErr) {
+            alert('Ошибка загрузки: ' + uploadErr.message);
+            return;
+        }
+
+        // 3. Получаем публичную ссылку и сохраняем в базу
+        const { data: pubUrl } = sb.storage.from('images').getPublicUrl(filePath);
+        currentConfig.images[slotId] = {
+            url: pubUrl.publicUrl,
+            path: filePath
+        };
+
+        await saveConfigToDB();
+        renderSlots();
+        showToast('Фото успешно обновлено!');
+    }
+
+    async function deletePhoto(slotId) {
+        showToast('Удаление фото...');
+        const oldData = currentConfig.images[slotId];
+        if (oldData && oldData.path) {
+            await sb.storage.from('images').remove([oldData.path]);
+        }
+        delete currentConfig.images[slotId];
+        await saveConfigToDB();
+        renderSlots();
+        showToast('Возвращено заводское фото!');
+    }
+
+    async function saveColor() {
+        showToast('Сохранение цвета...');
+        currentConfig.bgColor = document.getElementById('bgColorPicker').value;
+        await saveConfigToDB();
+        showToast('Цвет фона обновлён!');
+    }
+
+    async function resetColor() {
+        showToast('Сброс цвета...');
+        currentConfig.bgColor = null;
+        document.getElementById('bgColorPicker').value = '#14211d';
+        await saveConfigToDB();
+        showToast('Возвращён стандартный цвет!');
+    }
+
+    init();
+</script>
+</body>
+</html>
